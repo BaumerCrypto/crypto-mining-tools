@@ -2,7 +2,7 @@
 
 Generates a daily Discord summary of your Avalon Q mining stats by parsing the log from `avalon_temp_monitor.sh`. Runs nightly via cron and sends a single embed covering the previous 24 hours — hashrate, temperatures, power consumption, cost, mode split, uptime, events, lifetime best share, pool context, and monthly projection.
 
-Requires `avalon_temp_monitor.sh` to be running on cron and writing to its log file. The pool context section also requires GSS (GoSlimStratum) running locally with the API exposed.
+Requires `avalon_temp_monitor.sh` to be running on cron and writing to its log file. The pool context section also requires GSS ([GoSlimStratum by MMFP Solutions](https://mmfpsolutions.com/)) running locally with the API exposed.
 
 ---
 

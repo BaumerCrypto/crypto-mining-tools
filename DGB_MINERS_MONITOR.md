@@ -2,7 +2,7 @@
 
 Polls a fleet of DGB-mining ASICs every 5 minutes and writes normalized status lines to a log file. Handles two device types simultaneously: AxeOS miners over HTTP (NerdQAxe family) and Canaan CGMiner miners over TCP (Avalon Nano 3S, Avalon Q). No alerting — pure data collection to feed `daily_dgb_summary.sh`.
 
-GSSM (the miner dashboard) already handles real-time miner alerts. This script exists only to give the daily summary script clean structured data across both miner types.
+GSSM (the miner dashboard, part of the [GSS/GSSM stack by MMFP Solutions](https://mmfpsolutions.com/)) already handles real-time miner alerts. This script exists only to give the daily summary script clean structured data across both miner types.
 
 ---
 

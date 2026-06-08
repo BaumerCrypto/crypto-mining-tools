@@ -1,6 +1,6 @@
 # daily_dgb_summary.sh
 
-Generates a daily Discord summary of your DGB SmallMiners pool fleet (NerdQaxe3 + Nano 3S in the reference setup) by parsing the log from `dgb_miners_monitor.sh`. Runs nightly via cron and sends a single embed covering the previous 24 hours — fleet totals, per-miner stats with type-aware display, live pool context from GSS, and monthly projection.
+Generates a daily Discord summary of your DGB SmallMiners pool fleet (NerdQaxe3 + Nano 3S in the reference setup) by parsing the log from `dgb_miners_monitor.sh`. Runs nightly via cron and sends a single embed covering the previous 24 hours — fleet totals, per-miner stats with type-aware display, live pool context from [GSS by MMFP Solutions](https://mmfpsolutions.com/), and monthly projection.
 
 Requires `dgb_miners_monitor.sh` to be running on cron, and GSS running locally with the pool API exposed.
 

@@ -2,7 +2,7 @@
 
 Polls a fleet of BTC ASIC miners running AxeOS (Bitaxe, NerdQAxe family) every 5 minutes and writes normalized status lines to a log file. No alerting — pure data collection to feed `daily_btc_fleet_summary.sh`.
 
-GSSM (the miner dashboard) already handles real-time miner alerts. This script exists only to give the daily summary script clean structured data to parse.
+GSSM (the miner dashboard, part of the [GSS/GSSM stack by MMFP Solutions](https://mmfpsolutions.com/)) already handles real-time miner alerts. This script exists only to give the daily summary script clean structured data to parse.
 
 ---
 

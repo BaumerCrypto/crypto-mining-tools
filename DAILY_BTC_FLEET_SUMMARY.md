@@ -24,7 +24,7 @@ At 00:02 daily (via cron), the script:
 
 ### Why No Pool Context Section?
 
-BTC miners on this stack point to Ocean via DATUM Gateway (not a GSS pool), so there's no `/api/v1/{coin}/metrics/pool` endpoint to query. The Avalon Q and DGB Nerd/Nano summaries include Pool Context because they hit GSS-hosted pools; this one intentionally doesn't.
+BTC miners on this stack point to Ocean via DATUM Gateway (not a [GSS pool](https://mmfpsolutions.com/)), so there's no `/api/v1/{coin}/metrics/pool` endpoint to query. The Avalon Q and DGB Nerd/Nano summaries include Pool Context because they hit GSS-hosted pools; this one intentionally doesn't.
 
 ---
 
