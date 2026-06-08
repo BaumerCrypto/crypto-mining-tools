@@ -32,6 +32,10 @@ LOG_FILE="/home/ubuntu/btc_monitor.log"
 PING_TIMEOUT=5
 STRATUM_TIMEOUT=5
 
+# Timezone — adjust to your local timezone
+TZ='America/Regina'
+export TZ
+
 # --- Setup -------------------------------------------------------------------
 mkdir -p "$STATE_DIR"
 

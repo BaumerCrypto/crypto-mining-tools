@@ -32,6 +32,7 @@ EXPECTED_POLLS=288       # 24h * 60 / 5
 # Miner display names (must match column 3 of STATUS lines exactly)
 MINERS=("NerdQaxe1" "NerdQaxe2" "NerdQX")
 
+# Timezone — adjust to your local timezone
 TZ='America/Regina'
 export TZ
 

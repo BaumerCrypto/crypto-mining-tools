@@ -19,7 +19,7 @@
 #   - --date YYYY-MM-DD to generate for a specific day
 #   - --today to generate for the current (partial) day
 #
-# Install: crontab -e → 0 0 * * * /home/ubuntu/daily_mining_summary.sh
+# Install: crontab -e → 1 0 * * * /home/ubuntu/daily_mining_summary.sh
 #=====================================================
 
 # --- Configuration ---
@@ -110,9 +110,6 @@ HASHRATES=$(echo "$STATUS_LINES" | grep -oP 'Hash:\K[0-9.]+')
 
 # Extract TMax values
 TMAXES=$(echo "$STATUS_LINES" | grep -oP 'TMax:\K[0-9]+')
-
-# Extract TAvg values
-TAVGS=$(echo "$STATUS_LINES" | grep -oP 'TAvg:\K[0-9]+')
 
 # Extract Power values
 POWERS=$(echo "$STATUS_LINES" | grep -oP 'Power:\K[0-9]+')

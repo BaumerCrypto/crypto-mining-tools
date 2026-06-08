@@ -9,7 +9,7 @@
 # Sends:   nothing — pure data collection.
 #          GSSM dashboard handles miner alerts. This script
 #          exists only to feed daily_dgb_summary.sh.
-# Author:  @BaumerCrypto2.0 - June 2026
+# Author:  @BaumerCrypto2.0 | https://x.com/BaumerCrypto2_0 - June 2026
 #
 # Install: chmod +x /home/ubuntu/dgb_miners_monitor.sh
 #          crontab -e → */5 * * * * /home/ubuntu/dgb_miners_monitor.sh
@@ -33,6 +33,7 @@ HTTP_TIMEOUT=8           # seconds for AxeOS HTTP calls
 TCP_TIMEOUT=10           # seconds for Canaan socat calls
 CANAAN_API_PORT=4028     # standard CGMiner port
 
+# Timezone — adjust to your local timezone
 TZ='America/Regina'
 export TZ
 

@@ -5,7 +5,7 @@
 # Runs on: your monitoring server (Linux)
 # Parses:  dgb_miners_monitor.log (from dgb_miners_monitor.sh)
 # Sends:   Discord embed to #daily-mining-summary
-# Author:  @BaumerCrypto2.0 - June 2026
+# Author:  @BaumerCrypto2.0 | https://x.com/BaumerCrypto2_0 - June 2026
 #
 # Features:
 #   - Per-miner type-aware display:
@@ -41,6 +41,7 @@ MINERS=("NerdQaxe3:axeos" "Nano3S:canaan")
 # GSS API endpoint for DGB SmallMiners pool (port 3333) — where these miners live
 GSS_API_POOL="http://127.0.0.1:4004/api/v1/DGB/metrics/pool"
 
+# Timezone — adjust to your local timezone
 TZ='America/Regina'
 export TZ
 

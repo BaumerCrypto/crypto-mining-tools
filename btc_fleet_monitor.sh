@@ -31,6 +31,7 @@ MINERS=(
 LOG_FILE="/home/ubuntu/btc_fleet_monitor.log"
 HTTP_TIMEOUT=8  # seconds — keep tight so cron job finishes well under 5min
 
+# Timezone — adjust to your local timezone
 TZ='America/Regina'
 export TZ
 
