@@ -25,7 +25,7 @@
 # --- Configuration ---
 LOG_FILE="/home/ubuntu/avalon_monitor.log"
 WEBHOOK_FILE="/home/ubuntu/Discord_Webhook_Summary.txt"
-POWER_RATE=0.15476      # SaskPower E01 rate in $/kWh (15.476¢/kWh)
+POWER_RATE=0.15476      # E01 rate in $/kWh (15.476¢/kWh)
 POLL_INTERVAL=5         # Minutes between polls (matches avalon_temp_monitor.sh cron)
 EXPECTED_POLLS=288      # 24 hours * 60 / 5 = 288 STATUS polls per full day
 
@@ -201,6 +201,47 @@ else
     MONTHLY_COST="0"
 fi
 
+# --- Fetch pool data from GSS API ---
+# Pulls everything we need from /api/v1/DGB-BIGMINERS/metrics/pool in one call:
+#   - pool_best_share → Lifetime Best display
+#   - hashrate.15m, network_comparison.pool_percentage → pool % of network
+#   - network_comparison.estimated_time_to_block → ETB
+#   - blocks_found → lifetime block count
+#   - active_miners → currently-connected miners on this pool
+# Degrades gracefully if jq missing or API unreachable.
+GSS_API_POOL="http://127.0.0.1:4004/api/v1/DGB-BIGMINERS/metrics/pool"
+LIFETIME_BEST_FMT="—"
+POOL_CONTEXT_FMT="❌ Pool data unavailable"
+
+if command -v jq >/dev/null 2>&1; then
+    POOL_JSON=$(curl -s --max-time 5 "$GSS_API_POOL" 2>/dev/null)
+    if [[ -n "$POOL_JSON" ]] && echo "$POOL_JSON" | jq empty 2>/dev/null; then
+        # Lifetime best
+        LIFETIME_BEST_RAW=$(echo "$POOL_JSON" | jq -r '.pool_best_share // 0' 2>/dev/null)
+        if [[ -n "$LIFETIME_BEST_RAW" ]] && [[ "$LIFETIME_BEST_RAW" != "null" ]] && [[ "$LIFETIME_BEST_RAW" != "0" ]]; then
+            LIFETIME_BEST_FMT=$(awk -v d="$LIFETIME_BEST_RAW" 'BEGIN{
+                if (d >= 1e12) printf "%.2fT", d/1e12
+                else if (d >= 1e9)  printf "%.2fG", d/1e9
+                else if (d >= 1e6)  printf "%.2fM", d/1e6
+                else if (d >= 1e3)  printf "%.2fK", d/1e3
+                else printf "%d", d
+            }')
+        fi
+
+        # Pool context fields
+        POOL_HASH_15M=$(echo "$POOL_JSON" | jq -r '.hashrate."15m" // 0' 2>/dev/null)
+        POOL_PCT=$(echo "$POOL_JSON"      | jq -r '.network_comparison.pool_percentage // 0' 2>/dev/null)
+        POOL_ETB=$(echo "$POOL_JSON"      | jq -r '.network_comparison.estimated_time_to_block // "n/a"' 2>/dev/null)
+        POOL_BLOCKS=$(echo "$POOL_JSON"   | jq -r '.blocks_found // 0' 2>/dev/null)
+        POOL_MINERS=$(echo "$POOL_JSON"   | jq -r '.active_miners // 0' 2>/dev/null)
+
+        POOL_HASH_TH=$(awk -v h="$POOL_HASH_15M" 'BEGIN{printf "%.2f", h/1e12}')
+        POOL_PCT_FMT=$(awk -v p="$POOL_PCT" 'BEGIN{printf "%.4f", p}')
+
+        POOL_CONTEXT_FMT="🏊 **Pool Context (DGB-BIGMINERS)**\\n⚡ Hashrate (15m): ${POOL_HASH_TH} TH/s (${POOL_PCT_FMT}% of network)\\n⛏️ Blocks Found: ${POOL_BLOCKS} (lifetime)\\n⏱️ Est. Time to Block: ${POOL_ETB}\\n👥 Active Miners: ${POOL_MINERS}"
+    fi
+fi
+
 # --- Determine embed color ---
 # Green = clean day, Orange = actions fired, Red = emergencies
 if [[ "$EMERGENCY_COUNT" -gt 0 ]]; then
@@ -247,6 +288,8 @@ SUMMARY="${SUMMARY}\\n⏱️ **Mode Split:** ${MODE_LINE}"
 SUMMARY="${SUMMARY}\\n🌀 **Fan Avg:** ${FAN_AVG}%"
 SUMMARY="${SUMMARY}\\n📊 **Uptime:** ${UPTIME_PCT}% (${STATUS_COUNT} of ${EXPECTED_POLLS} polls)"
 SUMMARY="${SUMMARY}\\n⚠️ **Events:** ${EVENTS_LINE}"
+SUMMARY="${SUMMARY}\\n🏆 **Lifetime Best:** ${LIFETIME_BEST_FMT}"
+SUMMARY="${SUMMARY}\\n${POOL_CONTEXT_FMT}"
 SUMMARY="${SUMMARY}\\n💰 **Monthly Projection:** ~${MONTHLY_KWH} kWh | ~\$${MONTHLY_COST} CAD"
 
 # --- Output ---
@@ -267,7 +310,7 @@ else
                 \"title\": \"⛏️ Avalon Q — Daily Mining Summary\",
                 \"description\": \"${SUMMARY}\",
                 \"color\": ${EMBED_COLOR},
-                \"footer\": {\"text\": \"Daily Mining Summary | ${TARGET_DATE} | SaskPower E01 @ 15.476¢/kWh\"}
+                \"footer\": {\"text\": \"Daily Mining Summary | ${TARGET_DATE} | Power E01 @ 15.476¢/kWh\"}
             }]
         }"
 fi
