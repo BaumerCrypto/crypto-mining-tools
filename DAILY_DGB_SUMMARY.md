@@ -44,7 +44,7 @@ Edit the variables at the top of the script:
 ```bash
 LOG_FILE="/home/ubuntu/dgb_miners_monitor.log"
 WEBHOOK_FILE="/home/ubuntu/Discord_Webhook_Summary.txt"
-POWER_RATE=0.15476       # $/kWh
+POWER_RATE=0.15476       # Your electricity rate in $/kWh (default: Power E01)
 POLL_INTERVAL=5
 EXPECTED_POLLS=288
 
