@@ -121,7 +121,7 @@ You should see the message appear in your Discord channel.
 
 ## Related
 
-- [digidollar-oracle-tools`](https://github.com/BaumerCrypto/digidollar-oracle-tools) — My DigiDollar oracle monitoring, hardening guides, and deployment tools. Same design pattern (cron + bash + Discord) applied to oracle node operations.
+- [`digidollar-oracle-tools`](https://github.com/BaumerCrypto/digidollar-oracle-tools) — My DigiDollar oracle monitoring, hardening guides, and deployment tools. Same design pattern (cron + bash + Discord) applied to oracle node operations.
 - [GSS/GSSM by MMFP Solutions](https://mmfpsolutions.com/) — Solo mining pool software and miner manager I run for DGB and BTC. The pool context sections in the daily summary scripts query its API.
 - [DATUM Gateway](https://github.com/OCEAN-xyz/datum_gateway) — Stratum proxy between Bitcoin Knots and miners on Start9. `monitor_btc_stack.sh` probes its stratum port to verify it's actually serving work.
 
