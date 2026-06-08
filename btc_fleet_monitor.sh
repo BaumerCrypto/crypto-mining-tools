@@ -96,6 +96,7 @@ poll_miner() {
     # Round floats to keep log readable (power/temps come back with decimals)
     power=$(awk -v p="$power"  'BEGIN{printf "%.0f", p}')
     vr_temp=$(awk -v v="$vr_temp" 'BEGIN{printf "%.0f", v}')
+    temp=$(awk -v t="$temp" 'BEGIN{printf "%.1f", t}')
     hash_now=$(awk -v h="$hash_now"  'BEGIN{printf "%.1f", h}')
     hash_1m=$(awk -v h="$hash_1m"    'BEGIN{printf "%.1f", h}')
     hash_10m=$(awk -v h="$hash_10m"  'BEGIN{printf "%.1f", h}')
