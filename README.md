@@ -1,6 +1,6 @@
 # crypto-mining-tools
 
-Monitoring, alerting, and daily summary scripts for ASIC miners and mining infrastructure. CGMiner API, AxeOS API, Start9/DATUM Gateway, GSS pool API, Discord webhooks.
+Monitoring, alerting, and daily summary scripts for ASIC miners and mining infrastructure. CGMiner API, AxeOS API, Start9/DATUM Gateway, [GSS pool API](https://mmfpsolutions.com/), Discord webhooks.
 
 I built these to run my own home mining stack on autopilot. Every script runs on cron, tracks state to avoid alert spam, and pushes structured Discord output when things change or once a day. Same cron + bash + Discord webhook pattern I use for my [DigiDollar oracle monitoring](https://github.com/BaumerCrypto/digidollar-oracle-tools).
 
@@ -68,7 +68,7 @@ Each tool has its own documentation page with installation, configuration, log f
 
 ## Requirements
 
-All scripts run on a Linux box on the same LAN as your mining hardware. They don't run on the miners themselves. The reference setup is a small Ubuntu mini PC (`dgb-node`) that also runs the DGB full node and GSS pool engine — but any always-on Linux box will do.
+All scripts run on a Linux box on the same LAN as your mining hardware. They don't run on the miners themselves. The reference setup is a small Ubuntu mini PC (`dgb-node`) that also runs the DGB full node and the [GSS pool engine by MMFP Solutions](https://mmfpsolutions.com/) — but any always-on Linux box will do.
 
 **System packages:**
 
