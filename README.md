@@ -50,6 +50,19 @@ The daily summary scripts are staggered (`1 0`, `2 0`, `3 0`) so all log rotatio
 
 ---
 
+## ⏰ A Note on Timing
+
+The three daily summary scripts handle timezone in a specific way that affects **when** they fire and **what** they report:
+
+- **Report content** is anchored to `America/Regina` (UTC-6, no DST) via a hardcoded `TZ='America/Regina'` inside each script. The matching pollers (`avalon_temp_monitor.sh`, `btc_fleet_monitor.sh`, `dgb_miners_monitor.sh`) use the same TZ so log timestamps and date-filter math agree.
+- **Cron firing time** uses your host's system timezone.
+
+The reference deployment runs on a **UTC** host with cron entries `1 0 * * *`, `2 0 * * *`, `3 0 * * *`, which fire at 00:01–03 UTC — that's 18:01–03 evening in `America/Regina`. Reports therefore arrive in the evening with the previous day's data. This is intentional: UTC keeps the scripts portable across hosts, and the evening delivery avoids midnight alerting.
+
+To change the report timezone for your own deployment, edit the `TZ='America/Regina'` line in each daily summary script **and** its matching poller. To change the delivery time, adjust the cron schedule. Full details and a rolling 24-hour-window alternative are documented in each per-script doc.
+
+---
+
 ## Tools
 
 | Script | Docs | What It Does | Cron |

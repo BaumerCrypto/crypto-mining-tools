@@ -89,6 +89,178 @@ sudo apt install curl jq
 
 ---
 
+## ⏰ Timing & Timezone
+
+### Default behavior
+
+The script fires at the time you set in cron and reports the **previous calendar day** in `America/Regina` time (UTC-6, no DST).
+
+Default cron entry:
+
+```
+2 0 * * * /home/ubuntu/daily_btc_fleet_summary.sh
+```
+
+This fires at **00:02 in the host's system time**, not `America/Regina` time.
+
+### Host timezone matters
+
+The script does **not** inherit the host system's timezone for date math. It forces `TZ='America/Regina'` internally so the "yesterday" window is always anchored to `America/Regina` calendar days.
+
+Cron itself, however, fires on **host system time**. Three common scenarios:
+
+| Host TZ | `2 0 * * *` fires at | Report you receive |
+|---|---|---|
+| `UTC` | 00:02 UTC = 18:02 `America/Regina` (prev day) | "Yesterday in `America/Regina`" delivered ~6 PM local |
+| `America/Regina` | 00:02 `America/Regina` | "Yesterday in `America/Regina`" delivered ~midnight |
+| Anywhere else | Whatever 00:02 means on that host | Same report content, different delivery time |
+
+The reference deployment runs on a **UTC** host. That means reports arrive at ~6 PM `America/Regina` time. This is intentional — no midnight alerts, and a UTC host keeps published scripts portable.
+
+### Customizing for your setup
+
+**Change report timezone** (anchor reports to *your* local calendar day):
+
+Edit the script and replace the line:
+
+```bash
+TZ='America/Regina'
+```
+
+with your own TZ identifier, e.g.:
+
+```bash
+TZ='Europe/London'
+TZ='America/New_York'
+TZ='Asia/Tokyo'
+```
+
+`tzselect` on Linux lists valid options.
+
+> ⚠️ **Important:** the corresponding poller script must use the **same TZ** as this daily summary. The script filters its log by date string, and both writer and reader must agree on what date a given log line belongs to. If you change `TZ` here, also change it in [`btc_fleet_monitor.sh`](BTC_FLEET_MONITOR.md). Mismatched TZs will silently produce reports with missing or double-counted hours at day boundaries.
+
+**Change delivery time:** Adjust the cron schedule. Two examples:
+
+```
+# 8 AM delivery on a UTC host, where you want 8 AM in UTC-5 local
+0 13 * * * /home/ubuntu/daily_btc_fleet_summary.sh
+
+# 11 PM delivery on a host already set to your local TZ
+0 23 * * * /home/ubuntu/daily_btc_fleet_summary.sh
+```
+
+**Verify cron timing without waiting:** run with `--today` to generate a partial report for the current day, or `--date YYYY-MM-DD` to regenerate any past day's report on demand.
+
+### Why ~18-hour data lag is acceptable
+
+With a UTC host and a 00:02 UTC cron, reports arrive ~18 hours after the day they cover ends.
+
+This is fine for a hobbyist monitoring stack:
+
+- **Real-time alerting** is handled by [GSS/GSSM](https://mmfpsolutions.com/), AxeOS, and the realtime monitor scripts in this repo (`avalon_temp_monitor.sh`, `monitor_btc_stack.sh`). They alert immediately on actual incidents.
+- **Daily summaries** are for trend visibility — hashrate drift, thermal behavior, share patterns, uptime trends. None of that is time-sensitive enough to need live-as-of-fire-time data.
+
+If you want fresher data, see [Rolling 24h Patch](#rolling-24h-patch) below.
+
+---
+
+## Rolling 24h Patch
+
+The default model is **calendar-day**: each report covers a fixed midnight-to-midnight window in the report timezone. This was chosen deliberately:
+
+- **Honest gap handling** — if the monitor was down for 4 hours, that gap is anchored to a specific calendar day. With rolling windows, the same gap silently shrinks every report it appears in.
+- **Reproducible** — `--date 2026-06-07` regenerates an identical report. Rolling windows have no equivalent reproducibility.
+- **Clearer mental model** — "yesterday's mining day" is easier to reason about than "the past 24 hours from whenever the script fired."
+
+> ⚠️ **Note:** the session-aware "Today's Best" logic described below in this doc is calendar-day-aware. If you switch to rolling 24h, the per-miner "🎯 Today's Best" field becomes "🎯 Window's Best" semantically — the script will still compute it but the meaning shifts from "best share submitted on the calendar date" to "best share submitted in the rolling window."
+
+If you still want rolling 24h, the change is small. `EXPECTED_POLLS` stays at 288 (24h × 60min / 5min interval), so uptime % math is unchanged.
+
+### Find this block
+
+```bash
+# --- Parse arguments ---
+DRY_RUN=false
+TARGET_DATE=$(date -d "yesterday" +%Y-%m-%d)
+
+# ... argument parsing ...
+
+# --- Extract lines for target date ---
+STATUS_LINES=$(grep "^${TARGET_DATE}" "$LOG_FILE" | grep "| STATUS |")
+ALL_LINES=$(grep "^${TARGET_DATE}" "$LOG_FILE")
+```
+
+### Replace with
+
+```bash
+# --- Parse arguments ---
+DRY_RUN=false
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --dry-run) DRY_RUN=true; shift ;;
+        -h|--help)
+            echo "Usage: $0 [--dry-run]"
+            echo "  Reports rolling 24-hour window ending at script fire time."
+            exit 0
+            ;;
+        *) echo "Unknown option: $1"; exit 1 ;;
+    esac
+done
+
+# --- Compute rolling 24h window ---
+END_TS=$(date +%s)
+START_TS=$((END_TS - 86400))
+START_DT=$(date -d "@$START_TS" '+%Y-%m-%d %H:%M:%S')
+END_DT=$(date -d "@$END_TS"     '+%Y-%m-%d %H:%M:%S')
+
+# YYYY-MM-DD HH:MM:SS sorts lexicographically, so string compare works
+STATUS_LINES=$(awk -v s="$START_DT" -v e="$END_DT" '
+    {
+        ts = $1 " " $2
+        if (ts >= s && ts <= e) print
+    }
+' "$LOG_FILE" | grep "| STATUS |")
+
+ALL_LINES=$(awk -v s="$START_DT" -v e="$END_DT" '
+    {
+        ts = $1 " " $2
+        if (ts >= s && ts <= e) print
+    }
+' "$LOG_FILE")
+```
+
+### Also update the footer
+
+Find the Discord payload near the bottom of the script. Replace:
+
+```bash
+footer: { text: ("Daily Mining Summary | " + $date + " | Power E01 @ 15.476¢/kWh") }
+```
+
+with:
+
+```bash
+footer: { text: ("Rolling 24h | ending " + $end_dt + " | Power E01 @ 15.476¢/kWh") }
+```
+
+You'll also need to pass `END_DT` into the `jq` payload as a variable (`--arg end_dt "$END_DT"`) alongside the existing `$date` arg. In the "No Data" branch, replace any `${TARGET_DATE}` reference with text describing the rolling window — e.g., `"No mining data found in the last 24 hours."`
+
+### Trade-offs
+
+| Aspect | Calendar-day (default) | Rolling 24h (this patch) |
+|---|---|---|
+| Data freshness | ~18hr lag from end-of-day | Fresh through fire time |
+| Reproducibility | `--date YYYY-MM-DD` works | No equivalent — depends on fire time |
+| Gap attribution | Anchored to specific calendar day | Smears across multiple reports |
+| `--today` / `--date` flags | Useful | Become meaningless — can be removed |
+| Window boundaries | Stable midnight-to-midnight | Slightly different each report |
+| Session-aware "Today's Best" | Anchored to calendar day | Anchored to rolling window |
+
+Run with `--dry-run` after applying the patch to verify output before letting cron take over.
+
+---
+
 ## Command Line Options
 
 | Flag | Effect |
