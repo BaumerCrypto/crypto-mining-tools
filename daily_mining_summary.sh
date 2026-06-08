@@ -29,7 +29,7 @@ POWER_RATE=0.15476      # E01 rate in $/kWh (15.476¢/kWh)
 POLL_INTERVAL=5         # Minutes between polls (matches avalon_temp_monitor.sh cron)
 EXPECTED_POLLS=288      # 24 hours * 60 / 5 = 288 STATUS polls per full day
 
-# Timezone — Saskatchewan (CST year-round)
+# Timezone — adjust to your local timezone
 TZ='America/Regina'
 export TZ
 

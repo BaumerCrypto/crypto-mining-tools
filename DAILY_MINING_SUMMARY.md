@@ -32,7 +32,7 @@ Edit the variables at the top of the script:
 ```bash
 LOG_FILE="/home/ubuntu/avalon_monitor.log"               # Path to avalon_temp_monitor.sh log
 WEBHOOK_FILE="/home/ubuntu/Discord_Webhook_Summary.txt"  # Discord webhook for summary channel
-POWER_RATE=0.15476       # Your electricity rate in $/kWh (default: SaskPower E01)
+POWER_RATE=0.15476       # Your electricity rate in $/kWh (default: Power E01)
 POLL_INTERVAL=5          # Must match your avalon_temp_monitor.sh cron interval
 EXPECTED_POLLS=288       # 24h * 60min / POLL_INTERVAL = expected polls per day
 
@@ -51,7 +51,7 @@ chmod 600 ~/Discord_Webhook_Summary.txt
 
 ### Electricity Rate
 
-Update `POWER_RATE` to your local rate. The default is 15.476 ¢/kWh CAD (SaskPower E01 residential rate, effective Feb 1, 2026). Find your rate on your power bill or your utility's website.
+Update `POWER_RATE` to your local rate. The default is 15.476 ¢/kWh CAD (Power E01 residential rate). Find your rate on your power bill or your utility's website.
 
 ### Pool Context
 
