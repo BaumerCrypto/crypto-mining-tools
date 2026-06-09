@@ -320,11 +320,16 @@ FH_AVG_TH=$(awk -v g="$FLEET_HASH_AVG" 'BEGIN{printf "%.2f", g/1000}')
 FH_MIN_TH=$(awk -v g="$FLEET_HASH_MIN" 'BEGIN{printf "%.2f", g/1000}')
 FH_MAX_TH=$(awk -v g="$FLEET_HASH_MAX" 'BEGIN{printf "%.2f", g/1000}')
 
-# Monthly projection: scale partial → full day, then × 30
-MONTHLY_KWH=$(awk -v k="$FLEET_KWH" -v v="$MIN_VALID" -v e="$EXPECTED_POLLS" 'BEGIN{
-    if(v>0) printf "%.1f", k * (e/v) * 30
-    else print "0"
-}')
+# Per-miner monthly projection: each device scaled by its own valid polls, then summed
+MONTHLY_KWH=0
+for m in "${MINERS[@]}"; do
+    IFS=$'\t' read -r ha hi hx t pa kwh sd rd tb lb tc vc <<< "${MINER_DATA[$m]}"
+    miner_monthly=$(awk -v k="$kwh" -v v="$vc" -v e="$EXPECTED_POLLS" 'BEGIN{
+        if(v>0) printf "%.2f", k * (e/v) * 30
+        else print "0"
+    }')
+    MONTHLY_KWH=$(awk -v a="$MONTHLY_KWH" -v b="$miner_monthly" 'BEGIN{printf "%.1f", a+b}')
+done
 MONTHLY_COST=$(awk -v k="$MONTHLY_KWH" -v r="$POWER_RATE" 'BEGIN{printf "%.2f", k*r}')
 
 # =============================================
