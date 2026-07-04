@@ -5,7 +5,7 @@
 # Runs on: your monitoring server (Linux)
 # Parses:  btc_fleet_monitor.log (from btc_fleet_monitor.sh)
 # Sends:   Discord embed to #daily-mining-summary
-# Author:  @BaumerCrypto2.0 | https://x.com/BaumerCrypto2_0 - June 2026
+# Author:  @BaumerCrypto2.0 | https://x.com/BaumerCrypto2_0 - July 2026
 #
 # Features:
 #   - Per-miner: avg hashrate, avg temp, avg power,
@@ -20,6 +20,9 @@
 #
 # Install: chmod +x /home/ubuntu/daily_btc_fleet_summary.sh
 #          crontab -e → 2 0 * * * /home/ubuntu/daily_btc_fleet_summary.sh
+#
+# Updated: July 3, 2026 — Discord webhook hardened with --max-time 10 and
+#          HTTP status logging on failure. See GitHub issue #1 (P1-3).
 #=====================================================
 
 # --- Configuration ---
@@ -35,6 +38,23 @@ MINERS=("NerdQaxe1" "NerdQaxe2" "NerdQX")
 # Timezone — adjust to your local timezone
 TZ='America/Regina'
 export TZ
+
+# --- Discord webhook helper ---
+# Send Discord webhook with --max-time and HTTP status check.
+# Non-2xx responses logged to ~/daily_summary_errors.log for post-mortem.
+send_webhook() {
+    local payload="$1"
+    local http_code
+    http_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+        -X POST "$DISCORD_WEBHOOK" \
+        -H "Content-Type: application/json" \
+        -d "$payload" 2>/dev/null)
+    if [ "$http_code" != "204" ] && [ "$http_code" != "200" ]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') | $(basename "$0") | WARN: Discord webhook failed HTTP=${http_code}" >> "/home/ubuntu/daily_summary_errors.log"
+        return 1
+    fi
+    return 0
+}
 
 # --- Parse arguments ---
 DRY_RUN=false
@@ -283,8 +303,7 @@ if [[ "$ANY_DATA" == "false" ]]; then
                 footer: { text: ("Daily Mining Summary | " + $date) }
             }]
         }')
-        curl -s -o /dev/null -X POST "$DISCORD_WEBHOOK" \
-            -H "Content-Type: application/json" -d "$NO_DATA_JSON"
+        send_webhook "$NO_DATA_JSON"
     fi
     exit 0
 fi
@@ -435,9 +454,7 @@ if [[ "$DRY_RUN" == "true" ]]; then
     echo ""
     echo "(dry run — not sent to Discord)"
 else
-    curl -s -o /dev/null -X POST "$DISCORD_WEBHOOK" \
-        -H "Content-Type: application/json" \
-        -d "$EMBED_JSON"
+    send_webhook "$EMBED_JSON"
 fi
 
 exit 0
