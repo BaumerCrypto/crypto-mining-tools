@@ -3,7 +3,7 @@
 # Avalon Q Temperature Monitor & Auto-Switch Script
 # Runs on: your monitoring server (Linux)
 # Monitors: Avalon Q via CGMiner API
-# Author: @BaumerCrypto2.0 | https://x.com/BaumerCrypto2_0 - April 2026
+# Author: @BaumerCrypto2.0 | https://x.com/BaumerCrypto2_0 - July 2026
 # Updated: May 28, 2026
 #   - Added fan error detection (FanErr, individual RPMs)
 #   - Added hardware health checks (ECHU, ECMM, CRC, BOOTBY)
@@ -15,6 +15,13 @@
 #     softon:   ascset|0,softon,1:<timestamp> (5s delay)
 #     fan-spd:  ascset|0,fan-spd,N (15-100, -1 for auto)
 #     Emergency: Eco first, then softoff as last resort
+# Updated: July 3, 2026
+#   - Alert gating: persistent conditions (unreachable, crash, fan_err,
+#     dead_fan, echu, ecmm) alert once on transition, re-alert hourly
+#     while still down. State files at ~/.avalon_alerts/.
+#   - Recovery ✅ notifications sent when conditions clear.
+#   - Discord webhook: --max-time 10 + HTTP status logging on failure.
+#   - Mode-switch/emergency/BOOTBY alerts unchanged (state-change by nature).
 #=====================================================
 
 # --- Configuration ---
@@ -24,6 +31,11 @@ LOG_FILE="/home/ubuntu/avalon_monitor.log"
 LOCKOUT_FILE="/home/ubuntu/.avalon_eco_lockout"
 SOFTOFF_FILE="/home/ubuntu/.avalon_softoff"
 CRASH_FILE="/home/ubuntu/.avalon_crash_count"
+
+# Alert state tracking — prevents duplicate alerts on persistent conditions
+ALERT_STATE_DIR="/home/ubuntu/.avalon_alerts"
+ALERT_REALERT_SECONDS=3600  # Re-alert every hour while a condition persists
+mkdir -p "$ALERT_STATE_DIR" 2>/dev/null
 
 # Discord webhook for alerts
 WEBHOOK_FILE="/home/ubuntu/Discord_Webhook.txt"
@@ -56,13 +68,78 @@ log_msg() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') | $1" >> "$LOG_FILE"
 }
 
+# Send Discord webhook with --max-time and HTTP status capture.
+# Non-2xx responses are logged as WARN so failures don't happen silently.
 send_discord() {
     local message="$1"
-    if [ -n "$DISCORD_WEBHOOK" ]; then
-        curl -s -H "Content-Type: application/json" \
-            -X POST \
-            -d "{\"content\":\"⚠️ **Avalon Q Alert** ($(date '+%Y-%m-%d %H:%M'))\\n${message}\"}" \
-            "$DISCORD_WEBHOOK" > /dev/null 2>&1
+    if [ -z "$DISCORD_WEBHOOK" ]; then
+        log_msg "WARN | Discord webhook empty — cannot send: ${message}"
+        return 1
+    fi
+
+    local http_code
+    http_code=$(curl -s -o /dev/null -w '%{http_code}' \
+        --max-time 10 \
+        -H "Content-Type: application/json" \
+        -X POST \
+        -d "{\"content\":\"⚠️ **Avalon Q Alert** ($(date '+%Y-%m-%d %H:%M'))\\n${message}\"}" \
+        "$DISCORD_WEBHOOK" 2>/dev/null)
+
+    if [ "$http_code" = "204" ] || [ "$http_code" = "200" ]; then
+        return 0
+    else
+        # Truncate message to keep log lines readable
+        log_msg "WARN | Discord webhook failed HTTP=${http_code} — ${message:0:100}"
+        return 1
+    fi
+}
+
+# Alert gating — returns 0 (yes, send alert) if:
+#   - No state file exists for this condition (transition into alert), OR
+#   - State file exists but last alert was >= ALERT_REALERT_SECONDS ago
+# Returns 1 (skip) otherwise.
+# On "yes", writes current timestamp to the state file so the next call
+# within the re-alert window will be suppressed.
+should_alert() {
+    local condition="$1"
+    local state_file="${ALERT_STATE_DIR}/${condition}"
+    local now
+    now=$(date +%s)
+
+    if [ ! -f "$state_file" ]; then
+        echo "$now" > "$state_file"
+        return 0
+    fi
+
+    local last_alert
+    last_alert=$(cat "$state_file" 2>/dev/null)
+    if [ -z "$last_alert" ] || ! [[ "$last_alert" =~ ^[0-9]+$ ]]; then
+        # Corrupt state file — treat as transition
+        echo "$now" > "$state_file"
+        return 0
+    fi
+
+    local elapsed=$((now - last_alert))
+    if [ "$elapsed" -ge "$ALERT_REALERT_SECONDS" ]; then
+        echo "$now" > "$state_file"
+        return 0
+    fi
+
+    return 1
+}
+
+# Called when a condition clears — sends recovery ✅ Discord message
+# if we previously alerted on this condition. No-op if the state file
+# doesn't exist (i.e., we never alerted).
+clear_alert_state() {
+    local condition="$1"
+    local recovery_msg="$2"
+    local state_file="${ALERT_STATE_DIR}/${condition}"
+
+    if [ -f "$state_file" ]; then
+        rm -f "$state_file"
+        log_msg "RECOVERY | ${condition} — ${recovery_msg}"
+        send_discord "✅ ${recovery_msg}"
     fi
 }
 
@@ -222,7 +299,9 @@ if [ -z "$STATS" ]; then
     log_msg "ERROR | Cannot reach Avalon Q at ${AVALON_IP}:${API_PORT} - miner may be offline"
     CRASH_COUNT=$(increment_crash_count)
     if [ "$CRASH_COUNT" -ge "$CRASH_THRESHOLD" ]; then
-        send_discord "🔴 Cannot reach Avalon Q — unreachable for ${CRASH_COUNT} consecutive polls ($(( CRASH_COUNT * 5 )) min)"
+        if should_alert "downtime"; then
+            send_discord "🔴 Cannot reach Avalon Q — unreachable for ${CRASH_COUNT} consecutive polls ($(( CRASH_COUNT * 5 )) min)"
+        fi
     fi
     exit 1
 fi
@@ -268,7 +347,11 @@ log_msg "STATUS | Mode:${MODE_NAME} TMax:${TMAX}°C TAvg:${TAVG}°C HBOut:${HBO}
 # --- Fan error check ---
 if [ -n "$FAN_ERR" ] && [ "$FAN_ERR" -ne 0 ]; then
     log_msg "ALERT | FanErr=${FAN_ERR} - Fan fault detected!"
-    send_discord "🌀 Fan fault detected! FanErr=${FAN_ERR}. RPMs: [${FAN_RPMS}]. Check miner immediately."
+    if should_alert "fan_err"; then
+        send_discord "🌀 Fan fault detected! FanErr=${FAN_ERR}. RPMs: [${FAN_RPMS}]. Check miner immediately."
+    fi
+elif [ "$FAN_ERR" = "0" ]; then
+    clear_alert_state "fan_err" "Fan fault cleared (FanErr=0). RPMs: [${FAN_RPMS}]"
 fi
 
 # --- Individual fan RPM check (any fan at 0 = dead) ---
@@ -280,25 +363,39 @@ DEAD_FANS=""
 [[ "$F4" =~ ^[0-9]+$ ]] && [ "$F4" -eq 0 ] && DEAD_FANS="${DEAD_FANS}Fan4 "
 if [ -n "$DEAD_FANS" ] && [[ "${FANR:-0}" =~ ^[0-9]+$ ]] && [ "${FANR:-0}" -ne 0 ]; then
     log_msg "ALERT | Dead fan(s): ${DEAD_FANS}(RPMs: F1=${F1} F2=${F2} F3=${F3} F4=${F4})"
-    send_discord "🌀 Dead fan(s): ${DEAD_FANS}— RPMs: F1=${F1} F2=${F2} F3=${F3} F4=${F4}"
+    if should_alert "dead_fan"; then
+        send_discord "🌀 Dead fan(s): ${DEAD_FANS}— RPMs: F1=${F1} F2=${F2} F3=${F3} F4=${F4}"
+    fi
+elif [ -z "$DEAD_FANS" ] && [[ "$F1" =~ ^[0-9]+$ ]] && [[ "$F2" =~ ^[0-9]+$ ]] && [[ "$F3" =~ ^[0-9]+$ ]] && [[ "$F4" =~ ^[0-9]+$ ]]; then
+    # All 4 fans reporting valid nonzero RPM — definitive recovery
+    clear_alert_state "dead_fan" "All fans reporting RPM > 0 — fault cleared. RPMs: F1=${F1} F2=${F2} F3=${F3} F4=${F4}"
 fi
 
 # --- ECHU (hashboard error code) check ---
 # 0 or 512 = normal, 128 = overheated, 513 = abnormal
 if [ -n "$ECHU" ]; then
     case $ECHU in
-        0|512) ;; # Normal
+        0|512)
+            # Normal — clear any prior ECHU alert state
+            clear_alert_state "echu" "ECHU cleared (hashboard errors resolved, ECHU=${ECHU})"
+            ;;
         128)
             log_msg "ALERT | ECHU=${ECHU} - Hashboard OVERHEATED"
-            send_discord "🔥 Hashboard overheated! ECHU=128. TMax=${TMAX}°C"
+            if should_alert "echu"; then
+                send_discord "🔥 Hashboard overheated! ECHU=128. TMax=${TMAX}°C"
+            fi
             ;;
         513)
             log_msg "ALERT | ECHU=${ECHU} - Hashboard ABNORMAL"
-            send_discord "⚠️ Hashboard abnormal! ECHU=513. Check hardware."
+            if should_alert "echu"; then
+                send_discord "⚠️ Hashboard abnormal! ECHU=513. Check hardware."
+            fi
             ;;
         *)
             log_msg "ALERT | ECHU=${ECHU} - Unknown hashboard error code"
-            send_discord "⚠️ Unknown hashboard error ECHU=${ECHU}"
+            if should_alert "echu"; then
+                send_discord "⚠️ Unknown hashboard error ECHU=${ECHU}"
+            fi
             ;;
     esac
 fi
@@ -306,7 +403,11 @@ fi
 # --- ECMM (control board) check ---
 if [ -n "$ECMM" ] && [ "$ECMM" -ne 0 ]; then
     log_msg "ALERT | ECMM=${ECMM} - Control board fault or hashboard connection issue"
-    send_discord "🔧 Control board fault! ECMM=${ECMM}. May need reboot or physical inspection."
+    if should_alert "ecmm"; then
+        send_discord "🔧 Control board fault! ECMM=${ECMM}. May need reboot or physical inspection."
+    fi
+elif [ "$ECMM" = "0" ]; then
+    clear_alert_state "ecmm" "ECMM cleared (control board OK, ECMM=0)"
 fi
 
 # --- CRC (communication errors) check ---
@@ -343,10 +444,13 @@ if [ "$HASHRATE" = "0.0" ] || [ -z "$HASHRATE" ]; then
     log_msg "WARN | Hashrate is ${HASHRATE:-null} — crash count: ${CRASH_COUNT}/${CRASH_THRESHOLD}"
     if [ "$CRASH_COUNT" -ge "$CRASH_THRESHOLD" ]; then
         log_msg "ALERT | Miner appears crashed — 0 hashrate for ${CRASH_COUNT} consecutive polls ($(( CRASH_COUNT * 5 )) min)"
-        send_discord "🔴 Miner DOWN — 0 TH/s for $(( CRASH_COUNT * 5 )) min! Fan:${FANR}% TMax:${TMAX}°C. Check immediately."
+        if should_alert "downtime"; then
+            send_discord "🔴 Miner DOWN — 0 TH/s for $(( CRASH_COUNT * 5 )) min! Fan:${FANR}% TMax:${TMAX}°C. Check immediately."
+        fi
     fi
 else
     reset_crash_count
+    clear_alert_state "downtime" "Avalon Q back online — hashing at ${HASHRATE} TH/s"
 fi
 
 # =============================================
