@@ -22,6 +22,9 @@
 #   - Recovery ✅ notifications sent when conditions clear.
 #   - Discord webhook: --max-time 10 + HTTP status logging on failure.
 #   - Mode-switch/emergency/BOOTBY alerts unchanged (state-change by nature).
+#   - Manual eco-hold: touch ~/.avalon_eco_hold to lock miner in Eco mode
+#     (suppresses auto-recovery to Standard). Emergency + all health checks
+#     still run. rm ~/.avalon_eco_hold to resume auto-recovery.
 #=====================================================
 
 # --- Configuration ---
@@ -31,6 +34,10 @@ LOG_FILE="/home/ubuntu/avalon_monitor.log"
 LOCKOUT_FILE="/home/ubuntu/.avalon_eco_lockout"
 SOFTOFF_FILE="/home/ubuntu/.avalon_softoff"
 CRASH_FILE="/home/ubuntu/.avalon_crash_count"
+
+# Manual eco-hold — touch to lock miner in Eco mode (suppresses auto-recovery).
+# rm to resume normal auto-recovery. Emergency + health checks unaffected.
+ECO_HOLD_FILE="/home/ubuntu/.avalon_eco_hold"
 
 # Alert state tracking — prevents duplicate alerts on persistent conditions
 ALERT_STATE_DIR="/home/ubuntu/.avalon_alerts"
@@ -487,9 +494,13 @@ if [ "$TMAX" -ge "$TEMP_ECO" ] && [ "$MODE" -ne 0 ]; then
     exit 0
 fi
 
-# COOL: Switch back to Standard if in Eco, cooled down enough, AND lockout expired
+# COOL: Switch back to Standard if in Eco, cooled down enough, AND lockout expired.
+# Manual eco-hold: if ~/.avalon_eco_hold exists, skip auto-recovery (Kevin can
+# lock miner in Eco during hot weather). All emergency + health checks still run.
 if [ "$MODE" -eq 0 ] && [ "$TMAX" -le "$TEMP_RECOVER" ]; then
-    if check_lockout; then
+    if [ -f "$ECO_HOLD_FILE" ]; then
+        log_msg "ECO_HOLD | Manual eco-hold active — skipping Standard switch (TMax ${TMAX}°C, would otherwise recover)"
+    elif check_lockout; then
         log_msg "ACTION | TMax ${TMAX}°C <= ${TEMP_RECOVER}°C + lockout expired - Switching from Eco back to Standard mode"
         set_workmode 1
         clear_lockout
