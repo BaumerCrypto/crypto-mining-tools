@@ -5,7 +5,7 @@
 # Runs on: your monitoring server (Linux)
 # Parses: avalon_monitor.log (from avalon_temp_monitor.sh)
 # Sends: Discord embed with 24-hour mining stats
-# Author: @BaumerCrypto2.0 | https://x.com/BaumerCrypto2_0 - June 2026
+# Author: @BaumerCrypto2.0 | https://x.com/BaumerCrypto2_0 - July 2026
 #
 # Features:
 #   - Hashrate: avg / peak / low
@@ -20,6 +20,9 @@
 #   - --today to generate for the current (partial) day
 #
 # Install: crontab -e → 1 0 * * * /home/ubuntu/daily_mining_summary.sh
+#
+# Updated: July 3, 2026 — Discord webhook hardened with --max-time 10 and
+#          HTTP status logging on failure. See GitHub issue #1 (P1-3).
 #=====================================================
 
 # --- Configuration ---
@@ -32,6 +35,23 @@ EXPECTED_POLLS=288      # 24 hours * 60 / 5 = 288 STATUS polls per full day
 # Timezone — adjust to your local timezone
 TZ='America/Regina'
 export TZ
+
+# --- Discord webhook helper ---
+# Send Discord webhook with --max-time and HTTP status check.
+# Non-2xx responses logged to ~/daily_summary_errors.log for post-mortem.
+send_webhook() {
+    local payload="$1"
+    local http_code
+    http_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+        -X POST "$DISCORD_WEBHOOK" \
+        -H "Content-Type: application/json" \
+        -d "$payload" 2>/dev/null)
+    if [ "$http_code" != "204" ] && [ "$http_code" != "200" ]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') | $(basename "$0") | WARN: Discord webhook failed HTTP=${http_code}" >> "/home/ubuntu/daily_summary_errors.log"
+        return 1
+    fi
+    return 0
+}
 
 # --- Parse arguments ---
 DRY_RUN=false
@@ -88,9 +108,7 @@ if [[ "$STATUS_COUNT" -eq 0 ]]; then
         echo "=== Daily Mining Summary — ${TARGET_DATE} ==="
         echo "$MSG"
     else
-        curl -s -o /dev/null -X POST "$DISCORD_WEBHOOK" \
-            -H "Content-Type: application/json" \
-            -d "{
+        send_webhook "{
                 \"username\": \"Daily Mining Summary\",
                 \"embeds\": [{
                     \"title\": \"⛏️ Avalon Q — No Data\",
@@ -299,9 +317,7 @@ if [[ "$DRY_RUN" == "true" ]]; then
     echo "Embed color: ${EMBED_COLOR}"
     echo "(dry run — not sent to Discord)"
 else
-    curl -s -o /dev/null -X POST "$DISCORD_WEBHOOK" \
-        -H "Content-Type: application/json" \
-        -d "{
+    send_webhook "{
             \"username\": \"Daily Mining Summary\",
             \"embeds\": [{
                 \"title\": \"⛏️ Avalon Q — Daily Mining Summary\",
