@@ -5,7 +5,7 @@
 # Runs on: your monitoring server (Linux)
 # Monitors: Start9 OS (ping), DATUM Gateway stratum (stratum probe)
 # Alerts: Discord webhook
-# Author: @BaumerCrypto2.0 | https://x.com/BaumerCrypto2_0 - May 2026
+# Author: @BaumerCrypto2.0 | https://x.com/BaumerCrypto2_0 - July 2026
 #
 # Note: Bitcoin Knots RPC is not exposed on the LAN by Start9 — but if
 #       DATUM is up, Knots is necessarily up (DATUM can't serve work without it).
@@ -15,6 +15,9 @@
 #       stratum mining.subscribe request and checks for a valid response.
 #
 # Install: crontab -e → */1 * * * * /home/ubuntu/monitor_btc_stack.sh
+#
+# Updated: July 3, 2026 — Discord webhook hardened with --max-time 10 and
+#          HTTP status logging on failure. See GitHub issue #1 (P1-3).
 # =============================================================================
 
 # --- Configuration -----------------------------------------------------------
@@ -31,7 +34,6 @@ LOG_FILE="/home/ubuntu/btc_monitor.log"
 # Timeouts
 PING_TIMEOUT=5
 STRATUM_TIMEOUT=5
-
 # Timezone — adjust to your local timezone
 TZ='America/Regina'
 export TZ
@@ -52,12 +54,22 @@ log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') $1" >> "$LOG_FILE"
 }
 
+# Discord webhook sender — hardened with --max-time and HTTP status capture.
+# Non-2xx responses logged as WARN so failures don't happen silently.
 send_discord() {
     local title="$1"
     local message="$2"
     local color="$3"  # 16711680=red, 65280=green
 
-    curl -s -o /dev/null -X POST "$DISCORD_WEBHOOK" \
+    if [ -z "$DISCORD_WEBHOOK" ]; then
+        log "WARN: Discord webhook empty — cannot send: $title"
+        return 1
+    fi
+
+    local http_code
+    http_code=$(curl -s -o /dev/null -w '%{http_code}' \
+        --max-time 10 \
+        -X POST "$DISCORD_WEBHOOK" \
         -H "Content-Type: application/json" \
         -d "{
             \"username\": \"BTC Stack Monitor\",
@@ -67,7 +79,14 @@ send_discord() {
                 \"color\": $color,
                 \"footer\": {\"text\": \"BTC Stack Monitor | $(date '+%Y-%m-%d %H:%M:%S')\"}
             }]
-        }"
+        }" 2>/dev/null)
+
+    if [ "$http_code" = "204" ] || [ "$http_code" = "200" ]; then
+        return 0
+    else
+        log "WARN: Discord webhook failed HTTP=$http_code — $title"
+        return 1
+    fi
 }
 
 check_ping() {
