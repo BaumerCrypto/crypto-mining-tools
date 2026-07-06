@@ -25,11 +25,19 @@
 #   - Manual eco-hold: touch ~/.avalon_eco_hold to lock miner in Eco mode
 #     (suppresses auto-recovery to Standard). Emergency + all health checks
 #     still run. rm ~/.avalon_eco_hold to resume auto-recovery.
+# Updated: July 5, 2026
+#   - Peak-heat window (ECO_WINDOW_*): during configured local-hour range,
+#     an expired Eco lockout is HELD (not recovered) until window ends.
+#     Prevents Standard→Eco→Standard thrashing when a morning 93°C trigger's
+#     5hr lockout would otherwise expire mid-afternoon during peak heat.
+#     Only extends when a lockout file already exists — cool days that
+#     never trip Eco run Standard normally through the window.
+#     Set ECO_WINDOW_ENABLED=0 to disable. Manual eco-hold still overrides.
 #=====================================================
 
 # --- Configuration ---
-AVALON_IP="YOUR_MINER_IP"         # Avalon Q LAN IP (e.g. 192.168.0.116)
-API_PORT="4028"                    # CGMiner API port (default 4028)
+AVALON_IP="YOUR_MINER_IP"      # Avalon Q LAN IP (e.g. 192.168.0.116)
+API_PORT="4028"                # CGMiner API port (default 4028)
 LOG_FILE="/home/ubuntu/avalon_monitor.log"
 LOCKOUT_FILE="/home/ubuntu/.avalon_eco_lockout"
 SOFTOFF_FILE="/home/ubuntu/.avalon_softoff"
@@ -60,6 +68,17 @@ TEMP_RECOVER=78    # Switch back to Standard when cooled below this
 # Cooldown lockout (seconds) - must stay in Eco for this long
 # before switching back to Standard (5 hours = 18000 seconds)
 LOCKOUT_SECONDS=18000
+
+# Peak-heat window — during configured local-hour range, an expired
+# Eco lockout is held (not recovered) until window ends. Prevents
+# mid-afternoon Standard→Eco→Standard thrashing when a morning trigger's
+# 5hr lockout would otherwise expire during peak heat. Only extends if
+# a LOCKOUT_FILE already exists (i.e. a real Eco trigger happened);
+# cool days that never trip Eco run Standard normally through the window.
+# Hours are 24hr format in local TZ (see TZ setting above).
+ECO_WINDOW_ENABLED=1        # 1=enabled, 0=disabled
+ECO_WINDOW_START=10         # Start hour (inclusive, 24hr format)
+ECO_WINDOW_END=18           # End hour (exclusive, 24hr format)
 
 # Crash detection - how many consecutive 0-hashrate polls before alerting
 CRASH_THRESHOLD=2
@@ -276,6 +295,22 @@ set_lockout() {
 
 clear_lockout() {
     rm -f "$LOCKOUT_FILE"
+}
+
+# Check if current local time is within the peak-heat Eco window.
+# Uses TZ set at script top. 10# prefix forces decimal to avoid octal
+# interpretation of hours like "08" or "09".
+# Returns 0 if window is enabled AND current hour is within [START, END).
+in_eco_window() {
+    if [ "${ECO_WINDOW_ENABLED:-0}" != "1" ]; then
+        return 1
+    fi
+    local cur_hour
+    cur_hour=$(( 10#$(date +%H) ))
+    if [ "$cur_hour" -ge "$ECO_WINDOW_START" ] && [ "$cur_hour" -lt "$ECO_WINDOW_END" ]; then
+        return 0
+    fi
+    return 1
 }
 
 # --- Crash detection ---
@@ -497,17 +532,27 @@ fi
 # COOL: Switch back to Standard if in Eco, cooled down enough, AND lockout expired.
 # Manual eco-hold: if ~/.avalon_eco_hold exists, skip auto-recovery (Kevin can
 # lock miner in Eco during hot weather). All emergency + health checks still run.
+# Window extend: if a LOCKOUT_FILE exists AND we're inside the
+# ECO_WINDOW_START-ECO_WINDOW_END local-hour window, hold Eco even after 5hr
+# expiry (prevents mid-afternoon Standard→Eco→Standard thrashing). Cool days
+# with no trigger (no LOCKOUT_FILE) run Standard normally through the window.
 if [ "$MODE" -eq 0 ] && [ "$TMAX" -le "$TEMP_RECOVER" ]; then
     if [ -f "$ECO_HOLD_FILE" ]; then
         log_msg "ECO_HOLD | Manual eco-hold active — skipping Standard switch (TMax ${TMAX}°C, would otherwise recover)"
     elif check_lockout; then
-        log_msg "ACTION | TMax ${TMAX}°C <= ${TEMP_RECOVER}°C + lockout expired - Switching from Eco back to Standard mode"
-        set_workmode 1
-        clear_lockout
-        rm -f "$SOFTOFF_FILE"
-        log_msg "ACTION | Standard mode applied instantly + lockout cleared"
-        send_discord "✅ Cooled to ${TMAX}°C — switching back to Standard mode."
-        exit 0
+        # Lockout expired (or never existed). Check peak-heat window before recovering.
+        if [ -f "$LOCKOUT_FILE" ] && in_eco_window; then
+            CUR_HOUR=$(( 10#$(date +%H) ))
+            log_msg "WINDOW_EXTEND | Inside ${ECO_WINDOW_START}-${ECO_WINDOW_END} window (hour=${CUR_HOUR}) — holding Eco (TMax ${TMAX}°C, lockout expired but window active)"
+        else
+            log_msg "ACTION | TMax ${TMAX}°C <= ${TEMP_RECOVER}°C + lockout expired - Switching from Eco back to Standard mode"
+            set_workmode 1
+            clear_lockout
+            rm -f "$SOFTOFF_FILE"
+            log_msg "ACTION | Standard mode applied instantly + lockout cleared"
+            send_discord "✅ Cooled to ${TMAX}°C — switching back to Standard mode."
+            exit 0
+        fi
     fi
 fi
 
