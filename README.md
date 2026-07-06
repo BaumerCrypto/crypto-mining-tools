@@ -67,7 +67,7 @@ To change the report timezone for your own deployment, edit the `TZ='America/Reg
 
 | Script | Docs | What It Does | Cron |
 |--------|------|--------------|------|
-| `avalon_temp_monitor.sh` | [`AVALON_TEMP_MONITOR.md`](AVALON_TEMP_MONITOR.md) | Canaan Avalon Q ASIC — temps, fan health, hashboard errors, crash detection. Auto-switches work modes to protect hardware. Works with any CGMiner-compatible ASIC. | `*/5` |
+| `avalon_temp_monitor.sh` | [`AVALON_TEMP_MONITOR.md`](AVALON_TEMP_MONITOR.md) | Canaan Avalon Q ASIC — temps, fan health, hashboard errors, crash detection. Auto-switches modes with 5hr lockout, optional manual eco-hold, and configurable peak-heat window (prevents afternoon thrashing). Works with any CGMiner-compatible ASIC. | `*/5` |
 | `monitor_btc_stack.sh` | [`MONITOR_BTC_STACK.md`](MONITOR_BTC_STACK.md) | Start9 OS + DATUM Gateway — ping check and stratum protocol probe. Catches DATUM outages that a simple TCP check would miss. | `*/1` |
 | `btc_fleet_monitor.sh` | [`BTC_FLEET_MONITOR.md`](BTC_FLEET_MONITOR.md) | Polls BTC fleet of AxeOS miners (NerdQAxe family) every 5 min. No alerting — feeds `daily_btc_fleet_summary.sh`. | `*/5` |
 | `dgb_miners_monitor.sh` | [`DGB_MINERS_MONITOR.md`](DGB_MINERS_MONITOR.md) | Polls DGB miner fleet — handles both AxeOS (NerdQAxe) and Canaan CGMiner (Avalon Nano/Q) miners. Dual-path API. | `*/5` |
