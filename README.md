@@ -54,7 +54,7 @@ The daily summary scripts are staggered (`1 0`, `2 0`, `3 0`) so all log rotatio
 
 The three daily summary scripts handle timezone in a specific way that affects **when** they fire and **what** they report:
 
-- **Report content** is anchored to `America/Regina` (UTC-6, no DST) via a hardcoded `TZ='America/Regina'` inside each script. The matching pollers (`avalon_temp_monitor.sh`, `btc_fleet_monitor.sh`, `dgb_miners_monitor.sh`) use the same TZ so log timestamps and date-filter math agree.
+- **Report content** is anchored to `America/Regina` (UTC-6, no DST) via a hardcoded `TZ='America/Regina'` inside each daily summary script. The fleet pollers `btc_fleet_monitor.sh` and `dgb_miners_monitor.sh` use the same TZ so log timestamps and date-filter math agree. `avalon_temp_monitor.sh` defaults to `TZ='UTC'` with an in-file comment to change it to your local timezone — set it to whatever your daily summaries use if you want its timestamps to align with your reports.
 - **Cron firing time** uses your host's system timezone.
 
 The reference deployment runs on a **UTC** host with cron entries `1 0 * * *`, `2 0 * * *`, `3 0 * * *`, which fire at 00:01–03 UTC — that's 18:01–03 evening in `America/Regina`. Reports therefore arrive in the evening with the previous day's data. This is intentional: UTC keeps the scripts portable across hosts, and the evening delivery avoids midnight alerting.
@@ -67,7 +67,7 @@ To change the report timezone for your own deployment, edit the `TZ='America/Reg
 
 | Script | Docs | What It Does | Cron |
 |--------|------|--------------|------|
-| `avalon_temp_monitor.sh` | [`AVALON_TEMP_MONITOR.md`](AVALON_TEMP_MONITOR.md) | Canaan Avalon Q ASIC — temps, fan health, hashboard errors, crash detection. Auto-switches modes with 5hr lockout, optional manual eco-hold, and configurable peak-heat window (prevents afternoon thrashing). Works with any CGMiner-compatible ASIC. | `*/5` |
+| `avalon_temp_monitor.sh` | [`AVALON_TEMP_MONITOR.md`](AVALON_TEMP_MONITOR.md) | Canaan Avalon Q ASIC — temps, fan health, hashboard errors, crash detection. Auto-switches work modes to protect hardware. Optional peak-heat Eco window, manual eco-hold, and overnight run schedule with API soft-standby during daytime heat. Works with any CGMiner-compatible ASIC. | `*/5` |
 | `monitor_btc_stack.sh` | [`MONITOR_BTC_STACK.md`](MONITOR_BTC_STACK.md) | Start9 OS + DATUM Gateway — ping check and stratum protocol probe. Catches DATUM outages that a simple TCP check would miss. | `*/1` |
 | `btc_fleet_monitor.sh` | [`BTC_FLEET_MONITOR.md`](BTC_FLEET_MONITOR.md) | Polls BTC fleet of AxeOS miners (NerdQAxe family) every 5 min. No alerting — feeds `daily_btc_fleet_summary.sh`. | `*/5` |
 | `dgb_miners_monitor.sh` | [`DGB_MINERS_MONITOR.md`](DGB_MINERS_MONITOR.md) | Polls DGB miner fleet — handles both AxeOS (NerdQAxe) and Canaan CGMiner (Avalon Nano/Q) miners. Dual-path API. | `*/5` |
