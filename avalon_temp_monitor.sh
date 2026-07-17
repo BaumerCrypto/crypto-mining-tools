@@ -33,6 +33,19 @@
 #     Only extends when a lockout file already exists — cool days that
 #     never trip Eco run Standard normally through the window.
 #     Set ECO_WINDOW_ENABLED=0 to disable. Manual eco-hold still overrides.
+# Updated: July 16, 2026
+#   - Night schedule (NIGHT_SCHEDULE_*): miner runs ONLY during the
+#     overnight window (default 21:00-07:00 local) and sits in API
+#     soft-standby during the day. Wake via softon at ON hour; sleep
+#     via softoff at OFF hour. PSU must stay powered for the API wake.
+#     Eco mode is enforced during the run window and Standard recovery
+#     is skipped while the schedule is enabled. Daytime standby
+#     suppresses downtime/crash alerting. Self-heals if the miner
+#     boots into hashing mid-day (re-asserts standby). Emergency
+#     thermal softoff (SOFTOFF_FILE) is NEVER auto-woken — manual
+#     recovery required, same as before. Failed 21:00 wake self-alerts
+#     via the existing crash/downtime path within ~10 minutes.
+#     Set NIGHT_SCHEDULE_ENABLED=0 to restore 24/7 operation.
 #=====================================================
 
 # --- Configuration ---
@@ -57,7 +70,7 @@ WEBHOOK_FILE="/home/ubuntu/Discord_Webhook.txt"
 DISCORD_WEBHOOK=$(cat "$WEBHOOK_FILE" 2>/dev/null | tr -d '[:space:]')
 
 # Timezone — adjust to your local timezone
-TZ='America/Regina'
+TZ='UTC'                    # Change to your local timezone (e.g. America/Chicago)
 export TZ
 
 # Temperature thresholds (TMax - hottest ASIC chip)
@@ -79,6 +92,18 @@ LOCKOUT_SECONDS=18000
 ECO_WINDOW_ENABLED=1        # 1=enabled, 0=disabled
 ECO_WINDOW_START=10         # Start hour (inclusive, 24hr format)
 ECO_WINDOW_END=18           # End hour (exclusive, 24hr format)
+
+# Night schedule — miner runs only during the overnight window and sits
+# in soft-standby (API softoff) during the day. Wake/sleep are sent via
+# the CGMiner API, so the PSU MUST stay powered (never cut at the PDU
+# while a wake is pending). Hours are 24hr local time (TZ above);
+# overnight wrap is handled (ON 21 / OFF 7 = run 21:00-06:59).
+# The scheduler only wakes a miner IT put to sleep (SCHED_OFF_FILE);
+# an emergency thermal softoff (SOFTOFF_FILE) is never auto-woken.
+NIGHT_SCHEDULE_ENABLED=1    # 1=enabled, 0=disabled (24/7 operation)
+SCHED_ON_HOUR=21            # Wake miner at this local hour (inclusive)
+SCHED_OFF_HOUR=7            # Sleep miner at this local hour (inclusive)
+SCHED_OFF_FILE="/home/ubuntu/.avalon_sched_off"
 
 # Crash detection - how many consecutive 0-hashrate polls before alerting
 CRASH_THRESHOLD=2
@@ -273,6 +298,11 @@ soft_shutdown() {
     echo -n "ascset|0,softoff,1:${future_ts}" | socat -t 30 stdio tcp:${AVALON_IP}:${API_PORT},shut-none 2>/dev/null
 }
 
+soft_on() {
+    local future_ts=$(date -d '+5 seconds' +%s)
+    echo -n "ascset|0,softon,1:${future_ts}" | socat -t 30 stdio tcp:${AVALON_IP}:${API_PORT},shut-none 2>/dev/null
+}
+
 check_lockout() {
     if [ ! -f "$LOCKOUT_FILE" ]; then
         return 0
@@ -313,6 +343,24 @@ in_eco_window() {
     return 1
 }
 
+# Returns 0 if the current local hour is inside the scheduled RUN window.
+# Handles overnight wrap (ON 21, OFF 7 -> run when hour >= 21 OR hour < 7).
+# Uses TZ set at script top. 10# prefix forces decimal (avoids octal on
+# hours like "08"/"09").
+in_run_window() {
+    local cur_hour
+    cur_hour=$(( 10#$(date +%H) ))
+    if [ "$SCHED_ON_HOUR" -gt "$SCHED_OFF_HOUR" ]; then
+        # Overnight wrap (e.g. 21 -> 7)
+        [ "$cur_hour" -ge "$SCHED_ON_HOUR" ] || [ "$cur_hour" -lt "$SCHED_OFF_HOUR" ]
+        return $?
+    else
+        # Same-day window (e.g. 9 -> 17)
+        [ "$cur_hour" -ge "$SCHED_ON_HOUR" ] && [ "$cur_hour" -lt "$SCHED_OFF_HOUR" ]
+        return $?
+    fi
+}
+
 # --- Crash detection ---
 
 increment_crash_count() {
@@ -338,6 +386,12 @@ STATS=$(get_stats)
 
 # Check if we got a response
 if [ -z "$STATS" ]; then
+    # During scheduled daytime standby the miner may not answer the API —
+    # that's expected, not downtime. Stay quiet and wait for the run window.
+    if [ "${NIGHT_SCHEDULE_ENABLED:-0}" = "1" ] && ! in_run_window && [ -f "$SCHED_OFF_FILE" ]; then
+        log_msg "SCHED_OFF | Miner unreachable during scheduled standby (expected) — next wake at ${SCHED_ON_HOUR}:00"
+        exit 0
+    fi
     log_msg "ERROR | Cannot reach Avalon Q at ${AVALON_IP}:${API_PORT} - miner may be offline"
     CRASH_COUNT=$(increment_crash_count)
     if [ "$CRASH_COUNT" -ge "$CRASH_THRESHOLD" ]; then
@@ -378,6 +432,65 @@ case $MODE in
     2) MODE_NAME="Super" ;;
     *) MODE_NAME="Unknown($MODE)" ;;
 esac
+
+# =============================================
+# NIGHT SCHEDULE (wake/sleep)
+# =============================================
+if [ "${NIGHT_SCHEDULE_ENABLED:-0}" = "1" ]; then
+    SOFTOFF_STATE=$(echo "$STATS" | grep -oP 'SoftOFF\[\K[0-9]+' 2>/dev/null)
+    if in_run_window; then
+        # --- RUN window ---
+        if [ -f "$SCHED_OFF_FILE" ]; then
+            if [ -f "$SOFTOFF_FILE" ]; then
+                # Emergency thermal softoff takes precedence — never auto-wake.
+                log_msg "SCHED | Run window active but emergency softoff present — NOT waking (manual recovery required)"
+            else
+                log_msg "SCHED | Run window started — sending softon (wake)"
+                soft_on
+                rm -f "$SCHED_OFF_FILE"
+                reset_crash_count
+                send_discord "🌙 Scheduled wake — miner starting in Eco. Runs until ${SCHED_OFF_HOUR}:00."
+                # If the wake fails, hashrate stays 0 and the normal
+                # crash/downtime path alerts within ~2 cycles.
+                exit 0
+            fi
+        fi
+        # Enforce Eco for the whole run window (belt; eco-hold is suspenders)
+        if [[ "$MODE" =~ ^[0-9]+$ ]] && [ "$MODE" -ne 0 ]; then
+            log_msg "SCHED | Enforcing Eco during scheduled run (was ${MODE_NAME})"
+            set_workmode 0
+            MODE=0
+            MODE_NAME="Eco"
+        fi
+        # Fall through to normal monitoring below.
+    else
+        # --- OFF window (daytime standby) ---
+        if [ ! -f "$SCHED_OFF_FILE" ]; then
+            if [ "$SOFTOFF_STATE" = "1" ]; then
+                # Already in standby (emergency or manual) — just mark state.
+                touch "$SCHED_OFF_FILE"
+                log_msg "SCHED | Off window — miner already in standby, marking scheduled-off"
+            else
+                log_msg "SCHED | Off window started — sending softoff (standby until ${SCHED_ON_HOUR}:00)"
+                soft_shutdown
+                touch "$SCHED_OFF_FILE"
+                reset_crash_count
+                send_discord "☀️ Scheduled standby — miner off until ${SCHED_ON_HOUR}:00 (daytime heat)."
+            fi
+            exit 0
+        fi
+        # Already scheduled-off. Self-heal: if the miner is somehow hashing
+        # (e.g. a power blip rebooted it into mining), re-assert standby.
+        if [ "$SOFTOFF_STATE" = "0" ] && [ -n "$HASHRATE" ] && [ "$HASHRATE" != "0.0" ]; then
+            log_msg "SCHED | Miner hashing during off window (unexpected boot?) — re-asserting softoff"
+            soft_shutdown
+            send_discord "☀️ Re-asserting scheduled standby — miner was hashing during the off window."
+            exit 0
+        fi
+        log_msg "SCHED_OFF | Standby (SoftOFF=${SOFTOFF_STATE:-?}) — next wake at ${SCHED_ON_HOUR}:00"
+        exit 0
+    fi
+fi
 
 # Log current status (includes individual fan RPMs)
 log_msg "STATUS | Mode:${MODE_NAME} TMax:${TMAX}°C TAvg:${TAVG}°C HBOut:${HBO}°C Fan:${FANR}% Hash:${HASHRATE}TH/s Power:${POWER}W Fans:[${FAN_RPMS}]"
@@ -530,14 +643,16 @@ if [ "$TMAX" -ge "$TEMP_ECO" ] && [ "$MODE" -ne 0 ]; then
 fi
 
 # COOL: Switch back to Standard if in Eco, cooled down enough, AND lockout expired.
-# Manual eco-hold: if ~/.avalon_eco_hold exists, skip auto-recovery (Kevin can
+# Manual eco-hold: if ~/.avalon_eco_hold exists, skip auto-recovery (operator can
 # lock miner in Eco during hot weather). All emergency + health checks still run.
 # Window extend: if a LOCKOUT_FILE exists AND we're inside the
 # ECO_WINDOW_START-ECO_WINDOW_END local-hour window, hold Eco even after 5hr
 # expiry (prevents mid-afternoon Standard→Eco→Standard thrashing). Cool days
 # with no trigger (no LOCKOUT_FILE) run Standard normally through the window.
 if [ "$MODE" -eq 0 ] && [ "$TMAX" -le "$TEMP_RECOVER" ]; then
-    if [ -f "$ECO_HOLD_FILE" ]; then
+    if [ "${NIGHT_SCHEDULE_ENABLED:-0}" = "1" ]; then
+        log_msg "SCHED_ECO | Night schedule active — staying in Eco (TMax ${TMAX}°C, would otherwise recover)"
+    elif [ -f "$ECO_HOLD_FILE" ]; then
         log_msg "ECO_HOLD | Manual eco-hold active — skipping Standard switch (TMax ${TMAX}°C, would otherwise recover)"
     elif check_lockout; then
         # Lockout expired (or never existed). Check peak-heat window before recovering.
